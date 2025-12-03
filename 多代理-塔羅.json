@@ -1,0 +1,261 @@
+{
+  "name": "多代理-塔羅",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "34eaca38-15d2-42a5-8194-889ec8ce4149",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -400,
+        -240
+      ],
+      "id": "2e860146-adc4-4a67-a333-282227764fe9",
+      "name": "Webhook",
+      "webhookId": "34eaca38-15d2-42a5-8194-889ec8ce4149"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "cards_drawn",
+        "include": "selectedOtherFields",
+        "fieldsToInclude": "question, topic, context, spread_name",
+        "options": {
+          "destinationFieldName": "context_data"
+        }
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        16,
+        -240
+      ],
+      "id": "61b36b55-45b9-4492-99bb-6b1d7d27412f",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.text }}",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "你是一位專業的 RWS 塔羅牌大師。你的任務是忽略「未定義關鍵字」的訊息。請根據你對 RWS 牌義的專業知識，以及提供的牌陣資訊、問卜者問題、背景情境，為每一張牌在該位置上的意義進行解讀。生成一份綜合、富有洞察力且具有同理心的中文塔羅解讀。格式必須清晰、專業，涵蓋所有牌位，並提供最終的總結和建議。"
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        592,
+        -128
+      ],
+      "id": "4c1fc251-48b0-473d-90f0-8450f5439ccf",
+      "name": "Basic LLM Chain"
+    },
+    {
+      "parameters": {
+        "model": "alibaba/tongyi-deepresearch-30b-a3b:free",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        560,
+        80
+      ],
+      "id": "7476bdde-7fa2-443e-a82c-a7d93d78aaec",
+      "name": "OpenRouter Chat Model",
+      "credentials": {
+        "openRouterApi": {
+          "id": "1xeAYSUn6BTxbGaT",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 這個節點將所有分開的牌組 Item 合併成一個 Item，包含 LLM 需要的最終 Prompt 文本。\n\nconst promptParts = [];\nlet fullContext = {};\n\n// 遍歷所有單獨的牌組 Item\nfor (const item of items) {\n    // 1. 儲存核心情境資訊 (只從第一個 Item 抓取即可)\n    if (Object.keys(fullContext).length === 0) {\n        fullContext = {\n            question: item.json.question,\n            topic: item.json.topic,\n            context: item.json.context,\n            spread_name: item.json.spread_name,\n        };\n    }\n    \n    // 2. 建立每一張牌的詳細描述\n    const cardDescription = \n        `位置: ${item.json.context_data.position_name}\\n` +\n        `抽到的牌: ${item.json.context_data.card_name} (${item.json.context_data.orientation})\\n` +\n        `RWS 關鍵字: ${item.json.rws_keywords}\\n` +\n        `---\\n`;\n    \n    promptParts.push(cardDescription);\n}\n\n// 3. 組合最終的 Prompt 文本 (只包含問卜者資訊和牌陣細節)\nconst finalPrompt = \n    `你是一位專業的 RWS 塔羅牌大師。請依照以下資訊進行解讀：\\n` +\n    `--- 問卜者資訊 ---\\n` +\n    `問題: ${fullContext.question}\\n` + \n    `主題: ${fullContext.topic}\\n` +    \n    `背景情境: ${fullContext.context}\\n` + \n    `使用的牌陣: ${fullContext.spread_name}\\n\\n` + \n    `--- 牌陣細節 ---\\n` +\n    promptParts.join(''); // 將所有牌的描述連接起來\n\n// 4. 返回單一 Item，其中包含最終的 Prompt\nreturn [{\n    json: {\n        // 複製所有原始數據，確保 Agent 4 可以存取\n        question: fullContext.question, // \n        topic: fullContext.topic,       // \n        context: fullContext.context,   // \n        spread_name: fullContext.spread_name, // \n         \n        // 將我們生成的 Prompt 放在 Basic LLM Chain 節點能夠識別的 'text' Key 中\n        text: finalPrompt // 確保這裡只輸出 text: finalPrompt\n        \n    }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        -240
+      ],
+      "id": "a31bf1ec-804c-443d-9930-4bfcc20c9930",
+      "name": "Code-格式化Prompt"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://unprintable-synecdochically-tressa.ngrok-free.dev/api/v1/draw_cards",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"question\": \"{{ $json.question }}\",\n  \"topic\": \"{{ $json.topic }}\",\n  \"context\": \"{{ $json.context }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -192,
+        -240
+      ],
+      "id": "d9e9b8c2-f109-4e36-a9d6-1b76e744b6d2",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        928,
+        -240
+      ],
+      "id": "4767570b-5b63-40c2-b48b-cd54aeb98cec",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Agent 4 - 回傳結果給Streamlit (Code in JavaScript)\n\n// 1. 從直接輸入 (Basic LLM Chain) 獲取報告\n// 如果 $json.text 不存在 (LLM 失敗)，則使用預設錯誤訊息。\nlet tarotReport = $json.text || '抱歉，AI 解讀報告生成失敗。'; \n\n// 2. 初始化情境數據，準備從最穩定的源頭獲取\nlet originalQuestion = 'N/A (資料擷取失敗)';\nlet topic = 'N/A (資料擷取失敗)';\nlet context = 'N/A (資料擷取失敗)';\nlet spreadName = 'N/A (資料擷取失敗)';\n\n// --- 使用 try/catch 區塊從流程最穩定的節點 (Webhook, HTTP Request) 獲取數據 ---\ntry {\n    // 獲取 Webhook 節點的 Item (包含 question, topic, context)\n    const webhookNode = $node[\"Webhook\"]; \n    // 獲取 HTTP Request 節點的 Item (包含 spread_name)\n    const httpRequestNode = $node[\"HTTP Request\"];\n\n    // 檢查 Webhook 節點是否存在且有數據\n    if (webhookNode && webhookNode.json && webhookNode.json.length > 0) {\n        originalQuestion = webhookNode.json[0].question || 'N/A';\n        topic = webhookNode.json[0].topic || 'N/A';\n        context = webhookNode.json[0].context || 'N/A';\n    }\n\n    // 檢查 HTTP Request 節點是否存在且有數據\n    if (httpRequestNode && httpRequestNode.json && httpRequestNode.json.length > 0) {\n        spreadName = httpRequestNode.json[0].spread_name || 'N/A';\n    }\n} catch (error) {\n    // 如果 $node 引用失敗，將錯誤訊息寫入報告中，以供除錯\n    tarotReport = `內部錯誤：無法回溯獲取情境數據。錯誤訊息：${error.message}`;\n}\n\n\n// 3. 構建 Streamlit 期望的 JSON 輸出結構\n// 這個輸出 Item 將成為 Webhook Response 的內容\nreturn [{\n  json: {\n    \"tarot_report\": tarotReport,      \n             \n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        -240
+      ],
+      "id": "e839fd3d-05cb-41c3-aba0-2ed3441e8123",
+      "name": "Agent 4 - JSON 格式化"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. RWS 關鍵字數據庫 (已轉換為標準 JavaScript Object)\nconst TAROT_KEYWORDS = {\n    // --- 大阿爾克納 (Major Arcana) ---\n    \"愚人\": {\"正位\": \"新開始, 自由, 潛力, 冒險精神, 純真\", \"逆位\": \"魯莽, 不計後果, 衝動, 缺乏方向, 輕浮\"},\n    \"魔術師\": {\"正位\": \"能力, 技能, 創造力, 資源整合, 實現願望\", \"逆位\": \"欺騙, 缺乏自信, 資源分散, 徒勞無功\"},\n    \"女祭司\": {\"正位\": \"直覺, 潛意識, 內在智慧, 秘密, 靜默\", \"逆位\": \"膚淺, 壓抑直覺, 秘密洩漏, 逃避現實\"},\n    \"皇后\": {\"正位\": \"豐盛, 滋養, 美麗, 母親, 創造力\", \"逆位\": \"依賴, 停滯不前, 缺乏安全感, 不育\"},\n    \"皇帝\": {\"正位\": \"權威, 結構, 秩序, 父親, 領導力\", \"逆位\": \"暴君, 缺乏控制, 僵化, 過度支配\"},\n    \"教皇\": {\"正位\": \"傳統, 精神指導, 儀式, 團體認同, 智慧\", \"逆位\": \"反叛, 受限於傳統, 錯誤指導, 狹隘\"},\n    \"戀人\": {\"正位\": \"選擇, 和諧, 愛情, 結合, 價值觀一致\", \"逆位\": \"衝突, 分離, 錯誤選擇, 不忠\"},\n    \"戰車\": {\"正位\": \"決心, 勝利, 掌控, 旅程, 克服障礙\", \"逆位\": \"失控, 缺乏方向, 失敗, 逃避\"},\n    \"力量\": {\"正位\": \"勇氣, 柔和的力量, 自制, 憐憫, 信心\", \"逆位\": \"軟弱, 缺乏自制, 恐懼, 暴力\"},\n    \"隱者\": {\"正位\": \"內省, 尋求真理, 孤獨, 指導, 智慧\", \"逆位\": \"孤立, 缺乏指導, 逃避, 魯莽\"},\n    \"命運之輪\": {\"正位\": \"轉變, 機會, 循環, 好運, 命運\", \"逆位\": \"壞運氣, 中斷, 停滯, 抵抗改變\"},\n    \"正義\": {\"正位\": \"公平, 真相, 平衡, 法律, 責任\", \"逆位\": \"不公平, 偏見, 法律糾紛, 不平衡\"},\n    \"吊人\": {\"正位\": \"犧牲, 暫停, 新視角, 放棄控制, 洞察\", \"逆位\": \"僵持, 延遲, 固執, 徒勞的犧牲\"},\n    \"死亡\": {\"正位\": \"轉變, 結束, 新生, 清理舊事物, 釋放\", \"逆位\": \"停滯, 害怕改變, 緩慢的變化, 舊習難改\"},\n    \"節制\": {\"正位\": \"平衡, 耐心, 協調, 溫和, 目的\", \"逆位\": \"失衡, 過度, 衝突, 魯莽\"},\n    \"惡魔\": {\"正位\": \"束縛, 誘惑, 物質主義, 沉溺, 陰影\", \"逆位\": \"解放, 克服誘惑, 獨立, 重新掌控\"},\n    \"高塔\": {\"正位\": \"突然的變化, 崩潰, 舊結構瓦解, 釋放壓力, 覺醒\", \"逆位\": \"害怕改變, 避免災難, 延遲的破壞, 困在舊有模式\"},\n    \"星星\": {\"正位\": \"希望, 靈感, 樂觀, 療癒, 平靜\", \"逆位\": \"絕望, 缺乏信心, 悲觀, 幻想破滅\"},\n    \"月亮\": {\"正位\": \"錯覺, 潛意識, 恐懼, 直覺, 迷惑\", \"逆位\": \"清晰, 恐懼釋放, 幻覺消散, 困惑消除\"},\n    \"太陽\": {\"正位\": \"成功, 活力, 喜悅, 真理, 實現\", \"逆位\": \"暫時的失敗, 陰影, 悲觀, 缺乏活力\"},\n    \"審判\": {\"正位\": \"覺醒, 審視, 呼喚, 寬恕, 重生\", \"逆位\": \"拒絕審視, 延遲, 懲罰, 內疚\"},\n    \"世界\": {\"正位\": \"完成, 成功, 圓滿, 旅程結束, 整合\", \"逆位\": \"未完成, 延遲, 缺乏封閉, 停滯\"},\n\n    // --- 權杖 (Wands) ---\n    \"權杖一\": {\"正位\": \"新開始, 靈感, 潛力, 行動, 創造力\", \"逆位\": \"延遲, 缺乏靈感, 資源浪費, 無所事事\"},\n    \"權杖二\": {\"正位\": \"計畫, 決定未來, 潛在夥伴, 勇氣\", \"逆位\": \"缺乏動力, 恐懼改變, 固執, 失去自信\"},\n    \"權杖三\": {\"正位\": \"遠見, 拓展, 合作, 準備出發, 領導\", \"逆位\": \"挫折, 延遲, 缺乏合作, 停止成長\"},\n    \"權杖四\": {\"正位\": \"慶祝, 和諧, 家庭, 穩固基礎, 快樂\", \"逆位\": \"不穩定, 未完成, 缺乏安全感, 延遲的慶祝\"},\n    \"權杖五\": {\"正位\": \"競爭, 衝突, 意見不合, 挑戰, 遊戲\", \"逆位\": \"逃避衝突, 缺乏共識, 達成一致, 停止戰鬥\"},\n    \"權杖六\": {\"正位\": \"勝利, 成功, 公眾認可, 進步, 自信\", \"逆位\": \"失敗, 延遲, 傲慢, 缺乏自信\"},\n    \"權杖七\": {\"正位\": \"挑戰, 防禦, 勇氣, 堅定立場, 毅力\", \"逆位\": \"不知所措, 屈服, 缺乏信心, 退縮\"},\n    \"權杖八\": {\"正位\": \"快速行動, 旅程, 消息, 結束拖延, 運動\", \"逆位\": \"延遲, 挫折, 停止運動, 緩慢\"},\n    \"權杖九\": {\"正位\": \"韌性, 準備, 防禦, 毅力, 警惕\", \"逆位\": \"偏執, 害怕最壞情況, 頑固, 缺乏準備\"},\n    \"權杖十\": {\"正位\": \"負擔過重, 責任, 壓力, 義務, 壓抑\", \"逆位\": \"釋放負擔, 輕鬆, 逃避責任, 找到解決方案\"},\n    \"權杖侍者\": {\"正位\": \"新的想法, 熱情, 忠實, 訊息, 啟動\", \"逆位\": \"壞消息, 猶豫不決, 延遲, 膚淺\"},\n    \"權杖騎士\": {\"正位\": \"行動, 冒險, 活力, 快速, 追求\", \"逆位\": \"衝動, 魯莽, 延遲, 挫折, 缺乏方向\"},\n    \"權杖皇后\": {\"正位\": \"熱情, 獨立, 活力, 自信, 魅カ\", \"逆位\": \"支配, 脾氣暴躁, 嫉妒, 不忠\"},\n    \"權杖國王\": {\"正位\": \"願景, 領導, 榮譽, 創業, 慷慨\", \"逆位\": \"暴君, 嚴苛, 期望過高, 缺乏道德\"},\n\n    // --- 聖杯 (Cups) ---\n    \"聖杯一\": {\"正位\": \"情感的開始, 靈感, 豐盛, 新關係, 喜悅\", \"逆位\": \"情感停滯, 壓抑情感, 空虛, 愛情受阻\"},\n    \"聖杯二\": {\"正位\": \"結合, 夥伴關係, 統一, 吸引力, 和諧\", \"逆位\": \"分離, 關係失衡, 誤會, 斷裂\"},\n    \"聖杯三\": {\"正位\": \"慶祝, 友誼, 團體, 社交, 豐收\", \"逆位\": \"過度放縱, 醜聞, 孤立, 失去樂趣\"},\n    \"聖杯四\": {\"正位\": \"厭倦, 冷漠, 沉思, 機會錯過, 自我吸收\", \"逆位\": \"新視角, 接受邀請, 擺脫停滯, 覺醒\"},\n    \"聖杯五\": {\"正位\": \"失落, 悲傷, 遺憾, 專注於過去, 失望\", \"逆位\": \"接受失落, 繼續前進, 復原, 重新連接\"},\n    \"聖杯六\": {\"正位\": \"童年, 懷舊, 純真, 禮物, 過去重現\", \"逆位\": \"困在過去, 缺乏進展, 離開家庭, 擺脫童年\"},\n    \"聖杯七\": {\"正位\": \"選擇, 幻想, 白日夢, 誘惑, 許多選項\", \"逆位\": \"專注, 做出決定, 清晰目標, 意志力\"},\n    \"聖杯八\": {\"正位\": \"放棄, 離開, 尋求更深層次的意義, 轉變\", \"逆位\": \"害怕離開, 停滯, 依戀, 追求不切實際的目標\"},\n    \"聖杯九\": {\"正位\": \"願望達成, 滿足, 幸福, 物質享受, 自信\", \"逆位\": \"不滿足, 貪婪, 缺乏快樂, 傲慢\"},\n    \"聖杯十\": {\"正位\": \"家庭幸福, 滿足, 和平, 情感穩定, 完美\", \"逆位\": \"家庭衝突, 關係破裂, 情感不穩定, 失去家園\"},\n    \"聖杯侍者\": {\"正位\": \"情感訊息, 邀請, 夢想, 創造力, 敏感\", \"逆位\": \"壞消息, 情感依賴, 缺乏創造力, 脆弱\"},\n    \"聖杯騎士\": {\"正位\": \"浪漫, 魅力, 提議, 吸引力, 夢想家\", \"逆位\": \"不忠, 欺騙, 幻想, 缺乏現實感\"},\n    \"聖杯皇后\": {\"正位\": \"直覺, 情感支持, 善良, 療癒, 靈性\", \"逆位\": \"情感依賴, 情緒操控, 不安全感, 缺乏同理心\"},\n    \"聖杯國王\": {\"正位\": \"情感成熟, 溫和, 智慧, 藝術氣息, 諮詢師\", \"逆位\": \"情緒操控, 逃避責任, 酗酒, 缺乏同理心\"},\n\n    // --- 寶劍 (Swords) ---\n    \"寶劍一\": {\"正位\": \"突破, 清晰, 真實, 新想法, 勝利\", \"逆位\": \"混亂, 濫用力量, 殘酷, 誤解\"},\n    \"寶劍二\": {\"正位\": \"僵局, 猶豫不決, 避免真相, 平衡, 封閉\", \"逆位\": \"揭露真相, 解決僵局, 做出決定, 釋放情感\"},\n    \"寶劍三\": {\"正位\": \"心碎, 悲傷, 損失, 分離, 孤獨\", \"逆位\": \"復原, 原諒, 情感釋放, 走出悲傷\"},\n    \"寶劍四\": {\"正位\": \"休息, 恢復, 冥想, 療癒, 撤退\", \"逆位\": \"停滯, 缺乏休息, 重新啟動, 焦慮\"},\n    \"寶劍五\": {\"正位\": \"衝突, 損失, 勝利以失敗告終, 羞辱, 虛榮\", \"逆位\": \"和解, 繼續前進, 接受失敗, 停止戰鬥\"},\n    \"寶劍六\": {\"正位\": \"移動, 旅程, 擺脫困境, 轉變, 緩慢進展\", \"逆位\": \"停滯, 抵抗改變, 無法離開, 麻煩\"},\n    \"寶劍七\": {\"正位\": \"偷偷摸摸, 欺騙, 策略, 逃避責任, 孤立\", \"逆位\": \"坦誠, 意識到謊言, 歸還物品, 負責任\"},\n    \"寶劍八\": {\"正位\": \"限制, 困住, 害怕行動, 受害者心態, 自我束縛\", \"逆位\": \"解放, 找到出路, 自由, 克服恐懼\"},\n    \"寶劍九\": {\"正位\": \"焦慮, 恐懼, 惡夢, 擔憂, 內疚\", \"逆位\": \"希望, 結束擔憂, 釋放恐懼, 復原\"},\n    \"寶劍十\": {\"正位\": \"徹底結束, 背叛, 毀滅, 損失, 重新開始\", \"逆位\": \"無法結束, 延遲的災難, 復原, 避免最壞情況\"},\n    \"寶劍侍者\": {\"正位\": \"好奇心, 新思維, 警惕, 溝通, 學習\", \"逆位\": \"八卦, 缺乏準備, 魯莽, 秘密洩漏\"},\n    \"寶劍騎士\": {\"正位\": \"行動, 雄心, 快速變化, 勇敢, 衝刺\", \"逆位\": \"衝動, 魯莽, 缺乏計畫, 延遲\"},\n    \"寶劍皇后\": {\"正位\": \"獨立, 聰明, 洞察力, 誠實, 尖銳\", \"逆位\": \"殘酷, 嫉妒, 狹隘, 缺乏情感\"},\n    \"寶劍國王\": {\"正位\": \"知識, 權威, 智慧, 嚴謹, 分析\", \"逆位\": \"暴君, 缺乏人情味, 殘忍, 濫用權力\"},\n\n    // --- 金幣 (Pentacles) ---\n    \"金幣一\": {\"正位\": \"新的機會, 財富, 潛力, 繁榮, 穩固\", \"逆位\": \"機會錯失, 財富不穩定, 缺乏計畫, 浪費\"},\n    \"金幣二\": {\"正位\": \"平衡, 資源管理, 適應性, 優先級, 協調\", \"逆位\": \"失衡, 混亂, 財務困境, 忽略細節\"},\n    \"金幣三\": {\"正位\": \"團隊合作, 學習, 質量, 實踐技能, 認可\", \"逆位\": \"缺乏團隊精神, 品質差, 技能不足, 混亂\"},\n    \"金幣四\": {\"正位\": \"穩定, 保守, 佔有慾, 財務控制, 安全感\", \"逆位\": \"缺乏安全感, 吝嗇, 貪婪, 失去控制\"},\n    \"金幣五\": {\"正位\": \"貧困, 損失, 孤立, 財務困難, 擔憂\", \"逆位\": \"復原, 改善財務, 接受幫助, 走出困境\"},\n    \"金幣六\": {\"正位\": \"給予和接受, 慷慨, 慈善, 平衡, 共享\", \"逆位\": \"不平等, 債務, 貪婪, 濫用慷慨\"},\n    \"金幣七\": {\"正位\": \"評估, 延遲收穫, 投資, 耐心, 等待\", \"逆位\": \"不耐煩, 投資失敗, 缺乏遠見, 浪費時間\"},\n    \"金幣八\": {\"正位\": \"技能, 勤奮, 專注, 學徒, 細節\", \"逆位\": \"完美主義, 缺乏專注, 敷衍, 錯失機會\"},\n    \"金幣九\": {\"正位\": \"富裕, 奢華, 獨立, 滿足, 成功\", \"逆位\": \"缺乏獨立, 財務不穩, 孤立, 損失\"},\n    \"金幣十\": {\"正位\": \"財富, 家庭遺產, 安全感, 成功, 永久\", \"逆位\": \"家庭糾紛, 損失, 財務失敗, 缺乏穩定\"},\n    \"金幣侍者\": {\"正位\": \"新機會, 學習, 實用性, 專注, 財務訊息\", \"逆位\": \"壞消息, 魯莽, 缺乏目標, 浪費\"},\n    \"金幣騎士\": {\"正位\": \"努力, 效率, 責任, 耐心, 實踐\", \"逆位\": \"懶惰, 缺乏動力, 停滯不前, 魯莽\"},\n    \"金幣皇后\": {\"正位\": \"滋養, 務實, 豐盛, 安全感, 母親\", \"逆位\": \"依賴, 嫉妒, 揮霍, 缺乏安全感\"},\n    \"金幣國王\": {\"正位\": \"財富, 商業, 成功, 穩定, 慷慨\", \"逆位\": \"貪婪, 失敗, 腐敗, 濫用財富\"}\n};\n\n// 2. 處理每個傳入的項目 (Item)\nfor (const item of items) {\n    \n    // 🚨 修正：確保從正確的路徑存取數據\n    // 優先從 context_data 拿，如果沒有，嘗試從 Item 根目錄拿 (作為防禦性編程)\n    const cardDataInContext = item.json.context_data || item.json; \n    \n    // 獲取原始數據\n    const rawCardName = cardDataInContext.card_name || \"\";\n    const rawOrientation = cardDataInContext.orientation || \"\"; \n    \n    // --- 關鍵字清理與查找開始 ---\n    \n    // 1. 牌名清理\n    // a. 統一：將所有 '錢幣' 轉換為 '金幣'\n    let unifiedCardName = rawCardName.replace(/錢幣/g, '金幣'); \n    \n    // b. 極致清理：移除所有非中文字符 (只留下牌名漢字)\n    let cardName = unifiedCardName.replace(/[^\\u4E00-\\u9FFF]+/g, '').trim(); \n    \n    // 2. 正逆位清理 (移除所有空格和非中文字符，只留下 '正位' 或 '逆位')\n    let orientation = rawOrientation.replace(/\\s/g, '').trim();\n    // 確保 orientation 只能是 '正位' 或 '逆位'\n    if (orientation !== '正位' && orientation !== '逆位') {\n        orientation = orientation.replace(/[^\\u4E00-\\u9FFF]+/g, ''); // 再次清理\n    }\n\n    // 3. 查找關鍵字\n    const cardData = TAROT_KEYWORDS[cardName];\n    let keywords = \"未定義關鍵字，請根據 RWS 牌義進行解讀。\"; // 預設錯誤訊息\n    \n    if (cardData && cardData[orientation]) {\n        // 查找成功\n        keywords = cardData[orientation];\n    } else {\n        // 查找失敗：將失敗原因和使用的鍵值輸出到 rws_keywords 欄位\n        \n        let reason = \"\";\n        if (!cardData) {\n            // 找不到卡牌名稱\n            reason = \"卡牌名稱不存在\";\n        } else if (!cardData[orientation]) {\n            // 找到卡牌名稱，但找不到正逆位\n            reason = \"正逆位不匹配\";\n        }\n        \n        // 🚨 輸出包含錯誤訊息和實際使用的鍵值 (用 !~! 標記以便識別)\n        keywords = `!~!查找失敗!~! 原因: ${reason}。實際鍵值 - 卡牌:[${cardName}] 姿勢:[${orientation}]。請檢查上游API輸出。`;\n        \n        // 針對「不完整牌名」的檢查 (提供更明確的指導)\n        if (cardName === '權杖' || cardName === '聖杯' || cardName === '寶劍' || cardName === '金幣' || cardName.length < 2) {\n             keywords += ` (註：卡牌名稱過短或只提供牌組，請檢查上游API是否輸出完整牌號。)`;\n        }\n    }\n    \n    // 將新的 RWS 關鍵字欄位加回到該項目中\n    item.json.rws_keywords = keywords; \n}\n\nreturn items;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        -240
+      ],
+      "id": "9949a6d2-47b0-4582-bd15-edcb9a2f2d20",
+      "name": "Code in JavaScript1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code-格式化Prompt": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Agent 4 - JSON 格式化",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Code-格式化Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "02fcbbeb-fe98-4009-93af-ed03f0a0ecaf",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "f1d7a746feae2dc8c221990d2c3f51f19b41c5e7d0be2f9f061ff97e28792512"
+  },
+  "id": "Z1DxytCnf9KfZJKy",
+  "tags": []
+}
