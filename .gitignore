@@ -1,0 +1,9 @@
+# Python 虛擬環境 (venv)
+venv/
+env/
+
+# Python 執行時產生的暫存檔案
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
